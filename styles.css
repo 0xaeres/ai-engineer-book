@@ -245,6 +245,34 @@ a:hover {
   border: 1px solid #3e5d57;
 }
 
+.table-wrap {
+  overflow-x: auto;
+  margin: 18px 0 28px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+th,
+td {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  vertical-align: top;
+  text-align: left;
+}
+
+th {
+  background: #eadac4;
+  color: #2c261f;
+}
+
 .module-card h3,
 .capstone-card h3 {
   margin-top: 0;

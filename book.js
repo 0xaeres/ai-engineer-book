@@ -343,6 +343,158 @@ const patternLessons = [
   }
 ];
 
+const currentItems = {
+  "2.3": [
+    "The current split: frontier reasoning models, fast general models, and open-weight reasoning models",
+    "Reasoning tokens, thinking budgets, and why extra inference is billed",
+    "When deeper reasoning is worth latency and cost",
+    "Reasoning-effort controls and how to budget them",
+    "When a fast base model plus retrieval, tools, or a better prompt beats a reasoning model"
+  ]
+};
+
+const deepDives = {
+  "2.3": {
+    lede: "Reasoning models are language models trained and served in a way that encourages deliberate intermediate computation before the final answer. They are useful for hard planning, math, code repair, multi-step tool use, and synthesis across many constraints. They are not automatically better for every task.",
+    sections: [
+      {
+        title: "What changed after the first reasoning wave",
+        body: [
+          "The older mental model was a neat split between ordinary chat models and a small set of named reasoning models such as o1, o3, Claude 3.7 thinking, Gemini 2.5 thinking, DeepSeek R1, and Qwen QwQ. That snapshot is now stale. By 2026, reasoning is no longer just a special product category; it is a capability exposed through model families, API parameters, thinking budgets, and provider-specific serving modes.",
+          "OpenAI documents reasoning-capable GPT-5 models with a `reasoning_effort` control, while older o-series models such as o3 and o4-mini remain useful references for the reasoning-model design pattern. Anthropic exposes extended thinking on Claude 4-family models and Claude 3.7 Sonnet. Google documents thinking behavior for Gemini 3 and Gemini 2.5, with different controls across generations. DeepSeek moved from the original R1 release into newer V3.2 and V4-era thinking modes, and Qwen-style open-weight reasoning models made the idea practical outside closed APIs.",
+          "The engineering conclusion is simple: do not memorize one vendor's model list. Learn the serving pattern. A reasoning model spends more computation before answering, exposes some knob for reasoning budget or effort, often costs more in output or reasoning tokens, and should be routed only to tasks where that extra computation improves reliability enough to justify the tradeoff."
+        ]
+      },
+      {
+        title: "Base model versus reasoning model",
+        body: [
+          "A base or general-purpose chat model is optimized to answer directly. It can still solve multi-step tasks, especially when the prompt is clear and the context contains the right evidence. It is usually faster, cheaper, and better for high-throughput workloads such as extraction, rewriting, classification, shallow summarization, and simple Q&A.",
+          "A reasoning model is optimized to allocate extra inference work to the problem. Internally, that may look like hidden scratchpad reasoning, visible thinking blocks, additional planning tokens, reinforcement-learning-trained deliberation, or a provider-specific reasoning path. The exact implementation differs by provider, but the product behavior is similar: more time and tokens are spent before the final answer.",
+          "This distinction matters because AI engineering is mostly routing. You are rarely choosing one model for every request. A production system often sends easy requests to a fast model, hard requests to a reasoning model, and evidence-heavy requests to a retrieval pipeline before any model sees them."
+        ]
+      },
+      {
+        title: "Reasoning tokens and thinking budgets",
+        body: [
+          "Reasoning tokens are tokens spent on intermediate computation rather than user-visible final prose. Some APIs expose them as a separate usage category. Some expose a thinking block. Some hide the intermediate chain and only return the final answer. Either way, the infrastructure cost is real because the model is doing additional generation or internal computation.",
+          "Thinking budgets and reasoning-effort controls are not magic accuracy knobs. A higher budget gives the model more room to explore, verify, backtrack, or plan, but it can also increase latency, verbosity, and cost. For some tasks, extra thinking can even hurt by overcomplicating a simple request or drifting away from the evidence.",
+          "Treat reasoning effort as a resource allocation decision. Low or default effort is appropriate for short structured tasks. Medium or high effort is appropriate when the task has many constraints, hidden dependencies, or high cost of error. Maximal effort belongs in offline analysis, code migration planning, mathematical solving, safety review, or other contexts where seconds and extra tokens are acceptable."
+        ]
+      },
+      {
+        title: "A practical routing architecture",
+        body: [
+          "A useful architecture starts with a cheap classifier or deterministic heuristic that estimates task difficulty. It looks at request length, required tools, domain risk, ambiguity, need for multi-hop reasoning, and whether the user is asking for code, math, planning, or factual lookup.",
+          "The router should not ask, 'Which model is best?' in the abstract. It should ask, 'What is the cheapest path that satisfies the quality bar for this request?' Sometimes the answer is a fast model. Sometimes it is RAG plus a fast model. Sometimes it is a reasoning model. Sometimes it is no model at all, just deterministic code."
+        ],
+        diagram: `incoming request\n      |\n      v\nclassify difficulty and risk\n      |\n      +--> simple extraction -----------> fast base model\n      |\n      +--> private/recent facts --------> retrieval + base model\n      |\n      +--> multi-step planning ---------> reasoning model\n      |\n      +--> risky external action -------> approval gate + tool`
+      },
+      {
+        title: "Common failure modes",
+        body: [
+          "The first failure mode is using a reasoning model as a substitute for missing context. Reasoning cannot recover a private policy, current price, or internal codebase fact that was never provided. Use retrieval or tools first.",
+          "The second failure mode is using high reasoning effort on tasks that need deterministic validation. If the model must return JSON, generate SQL, or classify into fixed labels, schema validation and tests matter more than hidden deliberation.",
+          "The third failure mode is leaking or depending on chain-of-thought. Provider policies and APIs differ. In production, build around final answers, structured intermediate artifacts, tool traces, and evaluator-visible rationales rather than assuming raw hidden reasoning will be available or stable.",
+          "The fourth failure mode is benchmarking only final answer quality. If a reasoning model is 3 percent better but 10 times slower, it may be wrong for the product. Track accuracy, latency, cost, retry rate, user acceptance, and escalation rate together."
+        ]
+      }
+    ],
+    examples: [
+      {
+        title: "Model router with explicit reasons",
+        lang: "python",
+        code: `from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+
+
+class ModelTier(str, Enum):
+    FAST = "fast-base-model"
+    BALANCED = "balanced-base-model"
+    REASONING = "reasoning-model"
+
+
+@dataclass(frozen=True)
+class RequestProfile:
+    tokens: int
+    asks_for_code: bool = False
+    asks_for_math: bool = False
+    requires_private_facts: bool = False
+    requires_external_action: bool = False
+    ambiguity_score: float = 0.0
+    error_cost: str = "low"  # low | medium | high
+
+
+def choose_model(profile: RequestProfile) -> tuple[ModelTier, str]:
+    if profile.requires_external_action:
+        return ModelTier.REASONING, "action planning needs stronger deliberation plus approval"
+
+    if profile.requires_private_facts:
+        return ModelTier.BALANCED, "retrieve evidence first; reasoning cannot invent missing facts"
+
+    if profile.asks_for_code or profile.asks_for_math:
+        return ModelTier.REASONING, "symbolic constraints and verification benefit from extra inference"
+
+    if profile.error_cost == "high" and profile.ambiguity_score > 0.4:
+        return ModelTier.REASONING, "high cost of error justifies slower reasoning"
+
+    if profile.tokens < 1200 and profile.ambiguity_score < 0.2:
+        return ModelTier.FAST, "simple request; optimize latency and cost"
+
+    return ModelTier.BALANCED, "default path for moderate language tasks"`
+      },
+      {
+        title: "Provider-neutral request shape",
+        lang: "python",
+        code: `async def answer_with_budget(client, prompt: str, profile: RequestProfile) -> str:
+    model, reason = choose_model(profile)
+
+    metadata = {
+        "model_route": model.value,
+        "route_reason": reason,
+        "estimated_input_tokens": profile.tokens,
+    }
+
+    if model is ModelTier.REASONING:
+        # Names and exact parameter shapes differ by provider. Keep your
+        # application-level intent stable and translate it in provider adapters.
+        return await client.complete(
+            model=model.value,
+            prompt=prompt,
+            reasoning_effort="high" if profile.error_cost == "high" else "medium",
+            metadata=metadata,
+        )
+
+    return await client.complete(
+        model=model.value,
+        prompt=prompt,
+        temperature=0.2,
+        metadata=metadata,
+    )`
+      }
+    ],
+    decisionTable: [
+      ["Invoice field extraction", "Fast/base model", "The output is schema-bound; validation and examples matter more than extra reasoning."],
+      ["Debug a failing distributed trace", "Reasoning model", "The task requires hypothesis generation across logs, code paths, timing, and prior changes."],
+      ["Answer from private policy docs", "Retrieval + base or balanced model", "The key operation is finding the correct policy text; reasoning alone cannot know it."],
+      ["Generate SQL over production data", "Reasoning model + validator", "Planning helps, but read-only enforcement, query limits, and validation are mandatory."],
+      ["Summarize a short support ticket", "Fast/base model", "The quality bar is reachable without added inference cost."],
+      ["Plan a multi-agent migration", "Reasoning model", "Many constraints interact and mistakes are expensive."]
+    ],
+    sources: [
+      ["OpenAI reasoning guide", "https://platform.openai.com/docs/guides/reasoning"],
+      ["OpenAI GPT-5 developer announcement", "https://openai.com/index/introducing-gpt-5-for-developers/"],
+      ["Anthropic Claude models overview", "https://docs.anthropic.com/en/docs/about-claude/models/overview"],
+      ["Anthropic extended thinking tips", "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/extended-thinking-tips"],
+      ["Google Gemini thinking docs", "https://ai.google.dev/gemini-api/docs/thinking"],
+      ["DeepSeek thinking mode docs", "https://api-docs.deepseek.com/guides/thinking_mode"],
+      ["DeepSeek API changelog", "https://api-docs.deepseek.com/updates/"],
+      ["DeepSeek R1 paper", "https://arxiv.org/abs/2501.12948"]
+    ]
+  }
+};
+
 function lessonFor(text) {
   return patternLessons.find((lesson) => lesson.pattern.test(text)) || {
     explanation: "This concept is part of the engineering vocabulary used to build reliable AI systems. Treat it as a mechanism with inputs, outputs, constraints, and failure modes rather than as a keyword to memorize.",
@@ -374,6 +526,8 @@ function renderConceptItem(item) {
       <h3>${escapeHtml(item)}</h3>
       <p>${escapeHtml(lesson.explanation)}</p>
       <p>${escapeHtml(lesson.mechanics)}</p>
+      <p><strong>Engineering implication:</strong> this topic should change how the system is designed, not just how the code is named. Identify the input boundary, decide what must be validated before execution, record enough metadata to debug the behavior, and make the failure path explicit.</p>
+      <p><strong>Where it breaks:</strong> most failures come from using the concept at the wrong boundary. If a rule is deterministic, enforce it in code. If the model needs facts, retrieve them. If the operation changes external state, put the permission check in the tool or service layer.</p>
     </section>
   `;
 }
@@ -423,10 +577,65 @@ function plainList(items) {
   return list(items.map(escapeHtml));
 }
 
+function moduleItems(section) {
+  return currentItems[section.n] || section.items;
+}
+
 function explainItem(item, phase) {
   const found = topicExplanations.find(([pattern]) => pattern.test(item));
   const explanation = found ? found[1] : `Study this as a practical engineering habit, not as vocabulary. Write a small example, name the failure mode it prevents, and connect it to ${phase.title.toLowerCase()} work.`;
   return `<h3>${escapeHtml(item)}</h3><p>${explanation}</p>`;
+}
+
+function renderDecisionTable(rows) {
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Task</th><th>Default route</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderSources(sources) {
+  return list(sources.map(([label, url]) => `<a href="${url}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`));
+}
+
+function renderDeepDive(phase, section, guide, deepDive) {
+  return `
+    <h1>${escapeHtml(section.n)} ${escapeHtml(section.title)}</h1>
+    <div class="meta"><span class="pill">${escapeHtml(phase.title)}</span><span class="pill">${escapeHtml(phase.weeks)}</span><span class="pill">Updated for 2026</span></div>
+    <p class="lede">${escapeHtml(deepDive.lede)}</p>
+    <h2>Scope</h2>
+    ${plainList(moduleItems(section))}
+    ${deepDive.sections.map((entry) => `
+      <h2>${escapeHtml(entry.title)}</h2>
+      ${entry.body.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}
+      ${entry.diagram ? diagramBlock(entry.diagram) : ""}
+    `).join("")}
+    <h2>Worked examples</h2>
+    ${deepDive.examples.map((example) => `
+      <h3>${escapeHtml(example.title)}</h3>
+      ${codeBlock(example.code, example.lang)}
+    `).join("")}
+    <h2>Decision table</h2>
+    ${renderDecisionTable(deepDive.decisionTable)}
+    <h2>Production checklist</h2>
+    ${list([
+      "Log the route decision, selected model, reasoning-effort setting, token usage, latency, and fallback path.",
+      "Evaluate reasoning models on your own task distribution; do not rely on general leaderboards alone.",
+      "Use retrieval or tools for missing facts before asking any model to reason.",
+      "Keep raw hidden reasoning out of product contracts; use structured traces, citations, and validator outputs instead.",
+      "Re-check provider model names and parameters before deployment because model families and aliases move quickly."
+    ])}
+    <h2>Further reading</h2>
+    ${renderSources(deepDive.sources)}
+  `;
 }
 
 function renderHome() {
@@ -470,7 +679,7 @@ function renderPhase(phase) {
     ${phase.sections.map((section) => `
       <section class="module-card">
         <h3>${link(moduleId(section), `${section.n} ${section.title}`)}</h3>
-        ${plainList(section.items)}
+        ${plainList(moduleItems(section))}
       </section>
     `).join("")}
     <h2>Failure modes</h2>
@@ -480,19 +689,21 @@ function renderPhase(phase) {
 
 function renderModule(phase, section) {
   const guide = chapterGuides[phase.id];
+  const deepDive = deepDives[section.n];
+  if (deepDive) return renderDeepDive(phase, section, guide, deepDive);
   return `
     <h1>${escapeHtml(section.n)} ${escapeHtml(section.title)}</h1>
     <div class="meta"><span class="pill">${escapeHtml(phase.title)}</span><span class="pill">${escapeHtml(phase.weeks)}</span></div>
     <p class="lede">This section covers ${escapeHtml(section.title.toLowerCase())} as an engineering mechanism: the inputs it receives, the guarantees it creates, the implementation shape, and the ways it fails under production pressure.</p>
     <h2>Scope</h2>
-    ${plainList(section.items)}
+    ${plainList(moduleItems(section))}
     <h2>Concept</h2>
     <p>${escapeHtml(guide.opening)}</p>
     <p>${escapeHtml(guide.mechanics)}</p>
     <h2>Process</h2>
     ${diagramBlock(guide.diagram)}
     <h2>Details</h2>
-    ${section.items.map((item) => renderConceptItem(item)).join("")}
+    ${moduleItems(section).map((item) => renderConceptItem(item)).join("")}
     <h2>Worked example</h2>
     <p>The example below shows the kind of small, explicit implementation that belongs in a production codebase: typed boundaries, clear control flow, and behavior that can be tested.</p>
     ${moduleExample(phase, section)}
