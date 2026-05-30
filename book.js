@@ -344,6 +344,13 @@ const patternLessons = [
 ];
 
 const currentItems = {
+  "2.2": [
+    "Tokenization: text becomes model-readable token IDs",
+    "Context windows: the finite working set of each request",
+    "Sampling: temperature, top-p, top-k, and deterministic decoding",
+    "Transformer attention: how tokens exchange information",
+    "Long-context degradation and the lost-in-the-middle effect"
+  ],
   "2.3": [
     "The current split: frontier reasoning models, fast general models, and open-weight reasoning models",
     "Reasoning tokens, thinking budgets, and why extra inference is billed",
@@ -354,6 +361,114 @@ const currentItems = {
 };
 
 const deepDives = {
+  "2.2": {
+    lede: "An LLM does not read a page the way a person reads a page. It receives token IDs, transforms them through many attention and feed-forward layers, and repeatedly predicts the next token. Understanding this loop explains context limits, hallucination, temperature, streaming, prompt sensitivity, and why retrieval has to be engineered carefully.",
+    sections: [
+      {
+        title: "From text to tokens",
+        body: [
+          "A tokenizer converts text into integer IDs from a fixed vocabulary. Modern LLM tokenizers usually operate on subword units rather than whole words or individual characters. Common words may be a single token; rare words, whitespace patterns, code symbols, emojis, and unusual names may split into several tokens.",
+          "This matters operationally because pricing, context limits, latency, and truncation are token-based. A prompt with 10,000 English words, a JSON schema, and a code file is not measured by page count; it is measured by how the provider tokenizer segments the exact bytes you send.",
+          "Tokenization also explains strange edge cases. The model may handle `refund_policy` differently from `refund policy` because the token boundaries differ. It may struggle with exact string reversal or character counts because it does not naturally operate over characters unless the prompt or tool makes that representation explicit."
+        ]
+      },
+      {
+        title: "The autoregressive loop",
+        body: [
+          "Most chat LLMs generate autoregressively: given all previous tokens, predict a probability distribution for the next token. After a token is selected, it is appended to the sequence, and the process repeats. A final answer is just many next-token decisions chained together.",
+          "This is why early mistakes can cascade. If the model chooses a wrong assumption in sentence two, later tokens are conditioned on that assumption. It is also why structured output validation matters: the model is not executing a grammar unless the API or decoder constrains it."
+        ],
+        diagram: `prompt tokens\n    |\n    v\nmodel predicts next-token probabilities\n    |\n    v\nsampler chooses one token\n    |\n    v\nappend token to context\n    |\n    +---- repeat until stop condition`
+      },
+      {
+        title: "Attention and position",
+        body: [
+          "The Transformer architecture replaced recurrent sequence processing with attention. Each token representation can attend to other token representations and compute a weighted mixture of information. In simplified terms, attention lets the model ask: which earlier tokens are relevant to interpreting this token right now?",
+          "Because raw attention has no inherent sense of order, models also need positional information. Different model families use different positional schemes, but the engineering consequence is the same: position in the context matters. Instructions, examples, retrieved evidence, and the latest user request are not all equally influential just because they are present.",
+          "Attention is powerful but not free. Full attention over a long sequence has expensive scaling properties, and long-context models use architectural and serving optimizations to make large windows practical. A bigger window is useful, but it is not the same as perfect memory."
+        ]
+      },
+      {
+        title: "Sampling controls",
+        body: [
+          "After the model produces next-token probabilities, a decoding strategy chooses the token. Greedy decoding takes the most likely token. Temperature reshapes the probability distribution: lower temperature makes high-probability tokens dominate; higher temperature makes lower-probability alternatives more likely. Top-p keeps the smallest set of tokens whose cumulative probability reaches a threshold. Top-k limits sampling to the k most likely tokens.",
+          "For extraction, classification, SQL generation, and tool arguments, you usually want low randomness plus validation. For brainstorming, drafting, and creative variation, moderate randomness can be useful. The mistake is treating temperature as a creativity slider in every context; in production it is a reliability and variance control."
+        ]
+      },
+      {
+        title: "Context windows and truncation",
+        body: [
+          "The context window is the maximum token sequence the model can process for one request. It contains system/developer instructions, conversation history, retrieved documents, tool outputs, user input, and sometimes previous assistant output. If the combined input is too large, something must be omitted, compressed, or rejected.",
+          "Long context is not a license to dump everything. Research on long-context use shows that models can be worse at using information placed in the middle of long inputs than information placed near the beginning or end. In production RAG, this is one reason reranking, chunk ordering, citation constraints, and context budgeting matter."
+        ]
+      }
+    ],
+    examples: [
+      {
+        title: "A tiny sampler",
+        lang: "python",
+        code: `from __future__ import annotations
+
+import math
+import random
+
+
+def softmax(logits: list[float], temperature: float = 1.0) -> list[float]:
+    scaled = [value / temperature for value in logits]
+    largest = max(scaled)
+    exps = [math.exp(value - largest) for value in scaled]
+    total = sum(exps)
+    return [value / total for value in exps]
+
+
+def sample_token(vocab: list[str], logits: list[float], temperature: float) -> str:
+    probabilities = softmax(logits, temperature)
+    return random.choices(vocab, weights=probabilities, k=1)[0]
+
+
+vocab = ["refund", "cancel", "upgrade", "hello"]
+logits = [4.0, 2.5, 1.0, 0.2]
+
+print(sample_token(vocab, logits, temperature=0.2))  # usually refund
+print(sample_token(vocab, logits, temperature=1.2))  # more varied`
+      },
+      {
+        title: "Budgeting a prompt",
+        lang: "python",
+        code: `MAX_CONTEXT = 128_000
+RESERVED_FOR_ANSWER = 4_000
+RESERVED_FOR_TOOLS = 8_000
+
+
+def available_context_tokens() -> int:
+    return MAX_CONTEXT - RESERVED_FOR_ANSWER - RESERVED_FOR_TOOLS
+
+
+def select_chunks(chunks: list[Chunk], token_budget: int) -> list[Chunk]:
+    selected = []
+    used = 0
+    for chunk in chunks:
+        if used + chunk.tokens > token_budget:
+            break
+        selected.append(chunk)
+        used += chunk.tokens
+    return selected`
+      }
+    ],
+    decisionTable: [
+      ["Exact extraction", "Low temperature, schema validation", "The goal is repeatability and parseability."],
+      ["Brainstorming product names", "Moderate temperature", "Variation is useful and errors are cheap."],
+      ["Long policy Q&A", "Reranked chunks, tight context budget", "Relevant evidence must be easy for the model to use."],
+      ["Character-level manipulation", "Use code or explicit representation", "Tokenization makes character operations unnatural."],
+      ["Large codebase question", "Retrieval plus summarized structure", "The full repository rarely belongs in one prompt."]
+    ],
+    sources: [
+      ["OpenAI token explanation", "https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them"],
+      ["Attention Is All You Need", "https://arxiv.org/abs/1706.03762"],
+      ["Lost in the Middle", "https://arxiv.org/abs/2307.03172"],
+      ["Google Gemini thinking docs", "https://ai.google.dev/gemini-api/docs/thinking"]
+    ]
+  },
   "2.3": {
     lede: "Reasoning models are language models trained and served in a way that encourages deliberate intermediate computation before the final answer. They are useful for hard planning, math, code repair, multi-step tool use, and synthesis across many constraints. They are not automatically better for every task.",
     sections: [
