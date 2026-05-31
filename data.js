@@ -193,7 +193,7 @@ window.CAPSTONES = [
     phase: "Built during Phase 4 · Weeks 10–12",
     domain: "Unstructured document Q&A (legal, pharma, technical docs)",
     build: [
-      "PDF ingestion: Docling layout detection → semantic chunking → PII redaction → entity extraction → embeddings → Pinecone + Neo4j",
+      "PDF Ingestion: Docling layout detection -> semantic chunking -> PII redaction -> entity extraction -> embeddings -> Pinecone + Neo4j",
       "Distributed async workers on ECS Fargate processing thousands of PDFs concurrently",
       "DynamoDB state tracking per document (queued / processing / done / failed)",
       "Hybrid retrieval (vector + BM25 + graph) with reranking",
@@ -209,7 +209,7 @@ window.CAPSTONES = [
     phase: "Built during Phase 7 · Weeks 21–22",
     domain: "E-commerce analytics for non-technical users",
     build: [
-      "Multi-agent: Planner → SQL Writer → Validator → Executor → Explainer",
+      "Multi-agent: Planner -> SQL Writer -> Validator -> Executor -> Explainer",
       "Schema-aware context injection per query (only relevant tables sent to writer)",
       "LangGraph orchestration with conditional routing and retry loops",
       "Read-only DB enforcement, query timeout, max-row caps",
@@ -227,7 +227,7 @@ window.CAPSTONES = [
     build: [
       "Real ClinicalTrials.gov dataset ingestion (or your domain equivalent)",
       "Hybrid knowledge layer: Pinecone for unstructured PDFs + Neo4j for trial-drug-condition relationships",
-      "Multi-hop relationship queries (\"what other trials used drug X for condition Y?\")",
+      "Multi-hop relationship queries ('what other trials used drug X for condition Y?')",
       "Full three-layer guardrails — disclaimer auto-injection, contradiction checks, action limits",
       "Evidence-backed answers — every claim cites the source chunk",
       "Deployed on AWS with monitoring, regression tests in CI, semantic cache, cost dashboard"
@@ -251,7 +251,7 @@ window.OUT_OF_SCOPE = [
   {
     title: "ML fundamentals (gradient descent, backprop, transformers from scratch)",
     why: "Lovely to know. Not required to be an excellent agent engineer in 2026. The Karpathy series is there when you're curious — don't let it block you from shipping.",
-    pointer: "Andrej Karpathy's \"Neural Networks: Zero to Hero\" + the \"Let's build GPT\" video, on weekends."
+    pointer: "Andrej Karpathy's 'Neural Networks: Zero to Hero' + the 'Let's build GPT' video, on weekends."
   },
   {
     title: "Frontend frameworks (Next.js, React, Tailwind)",
@@ -269,16 +269,16 @@ window.NEXT_STEPS = [
   {
     label: "LinkedIn",
     title: "Headline that says what you can ship",
-    body: "Don't write \"AI Engineer\" in your headline — write \"AI Engineer · production RAG, multi-agent systems, AWS Bedrock + LangGraph · shipping in regulated domains.\" Specific gets interviews. Generic gets ignored."
+    body: "Don't write 'AI Engineer' in your headline — write 'AI Engineer · production RAG, multi-agent systems, AWS Bedrock + LangGraph · shipping in regulated domains.' Specific gets interviews. Generic gets ignored."
   },
   {
     label: "60-second pitch",
     title: "What to say in the first interview round",
-    body: "\"I spent six months building three production-grade AI systems end-to-end: a distributed RAG pipeline that ingests thousands of PDFs, a multi-agent NL→SQL system with read-only enforcement, and a clinical-trials knowledge base with three-layer guardrails. I can show you the traces, the eval numbers, and the cost dashboard for any of them.\" That's the whole pitch. Numbers and artefacts beat adjectives."
+    body: "\"'I spent six months building three production-grade AI systems end-to-end: a distributed RAG pipeline that ingests thousands of PDFs, a multi-agent NL→SQL system with read-only enforcement, and a clinical-trials knowledge base with three-layer guardrails. I can show you the traces, the eval numbers, and the cost dashboard for any of them.' That's the whole pitch. Numbers and artefacts beat adjectives.\" That's the whole pitch. Numbers and artefacts beat adjectives."
   },
   {
     label: "Keep learning",
     title: "What to read once you're shipping",
-    body: "Anthropic's \"Building effective agents\" essay, the Latent Space podcast, the LangChain blog, Eugene Yan's writing on production ML, and the original papers when something keeps confusing you (Self-RAG, RAG-as-judge, ReAct). Skim, don't drown."
+    body: "Anthropic's 'Building effective agents' essay, the Latent Space podcast, the LangChain blog, Eugene Yan's writing on production ML, and the original papers when something keeps confusing you (Self-RAG, RAG-as-judge, ReAct). Skim, don't drown."
   }
 ];
